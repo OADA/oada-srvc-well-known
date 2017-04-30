@@ -21,10 +21,11 @@ const server = {
   port: 443,
   mode: 'https',
   domain: 'localhost',
-},
+};
 
 module.exports = {
   server: server,
+  mergeSubServices: [ ],
   certs: {
     key: fs.readFileSync(path.join(__dirname, 'certs/ssl/server.key')),
     cert: fs.readFileSync(path.join(__dirname, 'certs/ssl/server.crt')),
@@ -35,7 +36,7 @@ module.exports = {
   "oada-configuration": {
     well_known_version: '1.0.0',
     oada_base_uri: server.mode+'//'+server.domain
-                  +(server.port ? ':'+.server.port : '' )
+                  +(server.port ? ':'+server.port : '' )
                   +(server.path_prefix ? server.path_prefix : ''),
     scopes_supported: [
       {

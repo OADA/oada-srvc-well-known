@@ -1,10 +1,10 @@
-
-////////////////////////////////////////////////////////////////////
-// This mock server will store all incoming POSTs in memory
-// in order to properly respond.  Therefore, if you leave it running
-// a long time, it may die.  It is intended to be used for testing,
-// not production.
-////////////////////////////////////////////////////////////////////
+//-----------------------------------------------------------------------
+// This service will provide a cohesive "/.well-known/oada-configuration"
+// and "/.well-known/openid-configuration" which is built from any 
+// global settings merged with the well-known documents of any internal
+// microservices.  Each external request to well-known results in 
+// internal requests to every internal service to retrieve the
+// latest well-known documents.
 
 const debuglib = require('debug');
 const Promise = require('bluebird');
@@ -25,30 +25,29 @@ return Promise.try(function() {
     trace: debuglib('http/trace'),
   };
 
-  opts = opts || {};
   log.info('-------------------------------------------------------------');
   log.info('Starting server for ./well-known/oada-configuration...');
 
   // Setup express:
-  server.app = express();
+  const app = express();
 
   // Allow route handlers to return promises:
-  server.app.use(express_promise());
+  app.use(express_promise());
 
   // Log all requests before anything else gets them for debugging:
-  server.app.use(function(req, res, next) {
+  app.use(function(req, res, next) {
     log.info('Received request: ' + req.method + ' ' + req.url);
-    log.trace('req.headers = ', req.headers);
-    log.trace('req.body = ', req.body);
+    //log.trace('req.headers = ', req.headers);
+    //log.trace('req.body = ', req.body);
     next();
   });
 
   //----------------------------------------------------------
   // Turn on CORS for all domains, allow the necessary headers
-  server.app.use(cors({
+  app.use(cors({
     exposedHeaders: [ 'x-oada-rev', 'location' ],
   }));
-  server.app.options('*', cors());
+  app.options('*', cors());
 
   //---------------------------------------------------
   // Configure the OADA well-known handler middleware
@@ -57,7 +56,8 @@ return Promise.try(function() {
       'content-type': 'application/vnd.oada.oada-configuration.1+json',
     },
   });
-  well_known_handler.addResource('oada-configuration', config.get('oada_configuration'));
+  well_known_handler.addResource('oada-configuration', config.get('oada-configuration'));
+  well_known_handler.addResource('openid-configuration', config.get('openid-configuration'));
 
   //-----------------------------------------------
   // If there are any other internal services who 
@@ -65,19 +65,38 @@ return Promise.try(function() {
   // version, update for a prefix or subdomain, and
   // merge with existing, then "done" will trigger next 
   // middleware which is the well_known_handler.
-  server.app.get(function(req,res,done) {
+  app.use(function(req,res,done) {
+    // parse out the '/.well-known' part of the URL, like 
+    // '/.well-known/oada-configuration' or '/.well-known/openid-configuration'
+    const whichdoc = req.url.replace(/^.*(\/.well-known\/.*$)/,'$1');
+    const resource = whichdoc.replace(/^\/.well-known\/(.*)$/,'$1');
     const subservices = config.get('mergeSubServices');
     if (_.isArray(subservices)) {
-      Promise.map(subservices, function(s) {
-        const url = s.base+'/.well-known/oada-configuration';
-        return request(url)
-        .then(function(res,body) {
-          const mergedoc = JSON.parse(body);
-          well_known_handler.addResource('oada-configuration', mergedoc);
+      return Promise.map(subservices, function(s) {
+        if (s.resource  !== resource) {
+          log.trace('Requested resource '+resource+', but this subservice ('+s.base+') is not configured for that resource.  Skipping...');
+          return;
+        }
+        const url = s.base+whichdoc;
+        return request({url:url,json:true})
+        .then(function(result) {
+          if (!result || result.statusCode !== 200) {
+            log.info(whichdoc + ' does not exist for subservice '+s.base);
+            return;
+          }
+          log.info('Merging '+whichdoc+' for subservice '+s.base);
+          // the wkj handler library unfortunately puts the servername for the sub-service on the
+          // URL's instead of the proxy's name.  Replace the subservice name with "./" so 
+          // this top-level wkj handler will replace properly:
+          const body = _.mapValues(result.body, function(val) {
+            if (typeof val !== 'string') return val;
+            return val.replace(/^https?:\/\/[^\/]+\//, './');
+          });
+          well_known_handler.addResource(s.resource, body);
 
         // If failed to return, or json didn't parse:
-        }).catch(function() {
-          log.info('The subservice URL '+url+' failed.');
+        }).catch(function(err) {
+          log.info('The subservice URL '+url+' failed. err = ', err);
         });
 
       // No matter whether we throw or not, let request continue:
@@ -85,39 +104,40 @@ return Promise.try(function() {
     }
   });
 
-  // Include well_known_handler AFTER the subservices check:
-  server.app.use(well_known_handler);
+  // Include well_known_handler AFTER the subservices check so that
+  // express does the check prior to the well-known handler responding.
+  app.use(well_known_handler);
 
 
   //--------------------------------------------------
   // Default handler for top-level routes not found:
-  server.app.use(function(req, res){
+  app.use(function(req, res){
     throw new oada_error.OADAError('Route not found: ' + req.url, oada_error.codes.NOT_FOUND);
   });
 
   //---------------------------------------------------
   // Use OADA middleware to catch errors and respond
-  server.app.use(oada_error.middleware(console.log));
+  app.use(oada_error.middleware(console.log));
 
-  server.app.set('port', config.get('server:port');
+  app.set('port', config.get('server:port'));
 
   //---------------------------------------------------
   // In oada-srvc-docker, the proxy provides the https for us,
   // but this service could also have its own certs and run https
   if(config.get('server:protocol') === 'https://') {
-    var s = https.createServer(config.get('server:certs'), server.app);
-    s.listen(server.app.get('port'), function() {
+    var s = https.createServer(config.get('server:certs'), app);
+    s.listen(app.get('port'), function() {
       log.info('OADA Well-Known service started on port ' 
-               + server.app.get('port')
+               + app.get('port')
                + ' [https]');
     });
 
   //-------------------------------------------------------
   // Otherwise, just plain-old HTTP server
   } else {
-    server.app.listen(server.app.get('port'), function() {
-      log.info('OADA Test Server started on port ' + server.app.get('port'));
+    app.listen(app.get('port'), function() {
+      log.info('OADA Test Server started on port ' + app.get('port'));
     });
   }
-};
+});
 
