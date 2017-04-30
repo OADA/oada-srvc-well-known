@@ -30,10 +30,11 @@ return Promise.try(function() {
 
   // Setup express:
   const app = express();
-
   // Allow route handlers to return promises:
   app.use(express_promise());
 
+
+  //-----------------------------------------------------------------
   // Log all requests before anything else gets them for debugging:
   app.use(function(req, res, next) {
     log.info('Received request: ' + req.method + ' ' + req.url);
@@ -42,6 +43,7 @@ return Promise.try(function() {
     next();
   });
 
+
   //----------------------------------------------------------
   // Turn on CORS for all domains, allow the necessary headers
   app.use(cors({
@@ -49,8 +51,9 @@ return Promise.try(function() {
   }));
   app.options('*', cors());
 
+
   //---------------------------------------------------
-  // Configure the OADA well-known handler middleware
+  // Configure the top-level OADA well-known handler middleware
   const well_known_handler = well_known_json({
     headers: {
       'content-type': 'application/vnd.oada.oada-configuration.1+json',
@@ -59,24 +62,25 @@ return Promise.try(function() {
   well_known_handler.addResource('oada-configuration', config.get('oada-configuration'));
   well_known_handler.addResource('openid-configuration', config.get('openid-configuration'));
 
-  //-----------------------------------------------
-  // If there are any other internal services who 
-  // contribute to well-known-json, go get their
-  // version, update for a prefix or subdomain, and
-  // merge with existing, then "done" will trigger next 
-  // middleware which is the well_known_handler.
+
+  //---------------------------------------------------------------------------------
+  // Retrive /.well-known/ from sub-services, replacing domains and paths as needed
   app.use(function(req,res,done) {
     // parse out the '/.well-known' part of the URL, like 
     // '/.well-known/oada-configuration' or '/.well-known/openid-configuration'
-    const whichdoc = req.url.replace(/^.*(\/.well-known\/.*$)/,'$1');
-    const resource = whichdoc.replace(/^\/.well-known\/(.*)$/,'$1');
+    const whichdoc = req.url.replace(/^.*(\/.well-known\/.*$)/,'$1'); // /.well-known/oada-configuration
+    const resource = whichdoc.replace(/^\/.well-known\/(.*)$/,'$1');  // oada-configuration
     const subservices = config.get('mergeSubServices');
     if (_.isArray(subservices)) {
       return Promise.map(subservices, function(s) {
+
+        // If this subservice doesn't support this resource (oada-configuration vs. openid-configuration), move on...
         if (s.resource  !== resource) {
           log.trace('Requested resource '+resource+', but this subservice ('+s.base+') is not configured for that resource.  Skipping...');
           return;
         }
+
+        // Request this resource from the subservice:
         const url = s.base+whichdoc;
         return request({url:url,json:true})
         .then(function(result) {
@@ -84,13 +88,15 @@ return Promise.try(function() {
             log.info(whichdoc + ' does not exist for subservice '+s.base);
             return;
           }
+
           log.info('Merging '+whichdoc+' for subservice '+s.base);
           // the wkj handler library unfortunately puts the servername for the sub-service on the
           // URL's instead of the proxy's name.  Replace the subservice name with "./" so 
           // this top-level wkj handler will replace properly:
+          const pfx = s.addPrefix || '';
           const body = _.mapValues(result.body, function(val) {
             if (typeof val !== 'string') return val;
-            return val.replace(/^https?:\/\/[^\/]+\//, './');
+            return val.replace(/^https?:\/\/[^\/]+\//, './'+pfx);
           });
           well_known_handler.addResource(s.resource, body);
 
