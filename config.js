@@ -13,6 +13,12 @@
  * limitations under the License.
  */
 'use strict';
+// We use nconf in dependencies, so we have to play games here. If npm/yarn
+// factors nconf up node_modules then our dependencies get the same nconf
+// instance as we do, allowing them to mutate each others keys. This ensures we
+// get our own nconf --- yes it is ugly. Thank you node.js for assuming we
+// always want your hidden cache.
+delete require.cache[require.resolve('nconf')];
 
 var nconf = require('nconf');
 var fs = require('fs');
@@ -29,26 +35,9 @@ if (config) {
   if (!fs.existsSync(config)) {
     throw new Error('Could not find config file: ' + config);
   }
-  if (config.match(/\.json$/)) {
-    nconf.file(config);
-  } else {
-    // .JS file instead, so require it rather than nconf.file it:
-    nconf.use('literal', require(config));
-  }
+  nconf.use('literal', require(config));
 }
 
 nconf.defaults(require('./config.defaults.js'));
-
-nconf.setObject = function(object, path) {
-  path = path || '';
-
-  Object.keys(object).forEach(function(key) {
-    if(typeof object[key] === '[object]') {
-      nconf.setObject(object[key], path + key + ':');
-    } else {
-      nconf.set(path + key, object[key]);
-    }
-  });
-}
 
 module.exports = nconf;
