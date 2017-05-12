@@ -59,8 +59,8 @@ return Promise.try(function() {
       'content-type': 'application/vnd.oada.oada-configuration.1+json',
     },
   });
-  well_known_handler.addResource('oada-configuration', config.get('oada-configuration'));
-  well_known_handler.addResource('openid-configuration', config.get('openid-configuration'));
+  well_known_handler.addResource('wellKnown:oada-configuration', config.get('wellKnown:oada-configuration'));
+  well_known_handler.addResource('wellKnown:openid-configuration', config.get('wellKnown:openid-configuration'));
 
 
   //---------------------------------------------------------------------------------
@@ -70,7 +70,7 @@ return Promise.try(function() {
     // '/.well-known/oada-configuration' or '/.well-known/openid-configuration'
     const whichdoc = req.url.replace(/^.*(\/.well-known\/.*$)/,'$1'); // /.well-known/oada-configuration
     const resource = whichdoc.replace(/^\/.well-known\/(.*)$/,'$1');  // oada-configuration
-    const subservices = config.get('mergeSubServices');
+    const subservices = config.get('wellKnown:mergeSubServices');
     if (_.isArray(subservices)) {
       return Promise.map(subservices, function(s) {
 
@@ -125,13 +125,13 @@ return Promise.try(function() {
   // Use OADA middleware to catch errors and respond
   app.use(oada_error.middleware(console.log));
 
-  app.set('port', config.get('server:port'));
+  app.set('port', config.get('wellKnown:server:port'));
 
   //---------------------------------------------------
   // In oada-srvc-docker, the proxy provides the https for us,
   // but this service could also have its own certs and run https
-  if(config.get('server:protocol') === 'https://') {
-    var s = https.createServer(config.get('server:certs'), app);
+  if(config.get('wellKnown:server:protocol') === 'https://') {
+    var s = https.createServer(config.get('wellKnown:server:certs'), app);
     s.listen(app.get('port'), function() {
       log.info('OADA Well-Known service started on port ' 
                + app.get('port')

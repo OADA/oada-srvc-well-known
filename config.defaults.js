@@ -24,26 +24,28 @@ const server = {
 };
 
 module.exports = {
-  server: server,
-  mergeSubServices: [ ],
-  certs: {
-    key: fs.readFileSync(path.join(__dirname, 'certs/ssl/server.key')),
-    cert: fs.readFileSync(path.join(__dirname, 'certs/ssl/server.crt')),
-    ca: fs.readFileSync(path.join(__dirname, 'certs/ssl/ca.crt')),
-    requestCrt: true,
-    rejectUnauthorized: false,
-  },
-  "oada-configuration": {
-    well_known_version: '1.0.0',
-    oada_base_uri: server.mode+'//'+server.domain
-                  +(server.port ? ':'+server.port : '' )
-                  +(server.path_prefix ? server.path_prefix : ''),
-    scopes_supported: [
-      {
-        name: 'oada.all.1', // can do anything the user can do
-        /* pattern: /oada\..*\.1/  */
-        'read+write': true, // can read/write anything the user can read/write
-      }
-    ],
+  wellKnown: {
+    server: server,
+    mergeSubServices: [ ],
+    certs: {
+      key: fs.readFileSync(path.join(__dirname, 'certs/ssl/server.key')),
+      cert: fs.readFileSync(path.join(__dirname, 'certs/ssl/server.crt')),
+      ca: fs.readFileSync(path.join(__dirname, 'certs/ssl/ca.crt')),
+      requestCrt: true,
+      rejectUnauthorized: false,
+    },
+    "oada-configuration": {
+      well_known_version: '1.0.0',
+      oada_base_uri: server.mode+'//'+server.domain
+                    +(server.port ? ':'+server.port : '' )
+                    +(server.path_prefix ? server.path_prefix : ''),
+      scopes_supported: [
+        {
+          name: 'oada.all.1', // can do anything the user can do
+          /* pattern: /oada\..*\.1/  */
+          'read+write': true, // can read/write anything the user can read/write
+        }
+      ],
+    },
   },
 };
